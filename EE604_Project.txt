@@ -1,0 +1,282 @@
+﻿!pip install tensorflow pillow matplotlib seaborn scikit-learn
+
+
+import tensorflow as tf
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.metrics import confusion_matrix, classification_report
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Conv2D, MaxPooling2D, Flatten, Dense, Dropout
+from google.colab import files
+from PIL import Image
+import zipfile, os
+
+
+# ============================================================
+# 1) UPLOAD ZIP FILE
+
+
+
+
+print("✅ Upload your dataset ZIP:")
+uploaded = files.upload()
+
+
+for fn in uploaded.keys():
+    with zipfile.ZipFile(fn, 'r') as zip_ref:
+        zip_ref.extractall('data')
+
+
+print("\n✅ ZIP extracted!")
+
+
+# ============================================================
+# 2) SET CORRECT PATHS (BASED ON YOUR OUTPUT)
+
+
+
+
+base_folder = "data/Banana Ripeness Classification Dataset"
+
+
+train_path = base_folder + "/train"
+valid_path = base_folder + "/valid"
+test_path  = base_folder + "/test"
+
+
+print("\n✅ USING PATHS:")
+print("Train:", train_path)
+print("Valid:", valid_path)
+print("Test :", test_path)
+
+
+# ============================================================
+# 3) DATA GENERATORS
+
+
+
+
+IMG_SIZE = 128
+BATCH = 16
+
+
+datagen = ImageDataGenerator(
+    rescale=1./255,
+    rotation_range=20,
+    zoom_range=0.15,
+    horizontal_flip=True
+)
+
+
+testgen = ImageDataGenerator(rescale=1./255)
+
+
+train_data = datagen.flow_from_directory(
+    train_path,
+    target_size=(IMG_SIZE, IMG_SIZE),
+    batch_size=BATCH,
+    class_mode='categorical'
+)
+
+
+valid_data = testgen.flow_from_directory(
+    valid_path,
+    target_size=(IMG_SIZE, IMG_SIZE),
+    batch_size=BATCH,
+    class_mode='categorical'
+)
+
+
+test_data = testgen.flow_from_directory(
+    test_path,
+    target_size=(IMG_SIZE, IMG_SIZE),
+    batch_size=BATCH,
+    class_mode='categorical',
+    shuffle=False
+)
+
+
+class_names = list(train_data.class_indices.keys())
+num_classes = len(class_names)
+
+
+print("\n✅ Classes:", class_names)
+
+
+# ============================================================
+# 4) CNN MODEL
+
+
+
+
+model = Sequential([
+    Conv2D(32, (3,3), activation='relu', input_shape=(IMG_SIZE, IMG_SIZE, 3)),
+    MaxPooling2D(2,2),
+
+
+    Conv2D(64, (3,3), activation='relu'),
+    MaxPooling2D(2,2),
+
+
+    Conv2D(128, (3,3), activation='relu'),
+    MaxPooling2D(2,2),
+
+
+    Flatten(),
+    Dense(128, activation='relu'),
+    Dropout(0.3),
+    Dense(num_classes, activation='softmax')
+])
+
+
+model.compile(optimizer='adam',
+              loss='categorical_crossentropy',
+              metrics=['accuracy'])
+
+
+model.summary()
+
+
+# ============================================================
+# 5) TRAIN THE MODEL
+
+
+
+
+history = model.fit(
+    train_data,
+    validation_data=valid_data,
+    epochs=10
+)
+
+
+# ============================================================
+# 6) TRAINING GRAPHS
+
+
+
+
+plt.figure(figsize=(16,5))
+
+
+# Accuracy
+plt.subplot(1,2,1)
+plt.plot(history.history['accuracy'], label='Train Accuracy')
+plt.plot(history.history['val_accuracy'], label='Validation Accuracy')
+plt.title("Training vs Validation Accuracy")
+plt.xlabel("Epochs")
+plt.ylabel("Accuracy")
+plt.legend()
+
+
+# Loss
+plt.subplot(1,2,2)
+plt.plot(history.history['loss'], label='Train Loss')
+plt.plot(history.history['val_loss'], label='Validation Loss')
+plt.title("Training vs Validation Loss")
+plt.xlabel("Epochs")
+plt.ylabel("Loss")
+plt.legend()
+
+
+plt.show()
+
+
+# ============================================================
+# 7) CONFUSION MATRIX + CLASSIFICATION REPORT
+
+
+
+
+y_true = test_data.classes
+y_pred_prob = model.predict(test_data)
+y_pred = np.argmax(y_pred_prob, axis=1)
+
+
+cm = confusion_matrix(y_true, y_pred)
+
+
+plt.figure(figsize=(8,6))
+sns.heatmap(cm, annot=True, fmt='d',
+            xticklabels=class_names,
+            yticklabels=class_names,
+            cmap="Blues")
+plt.title("Confusion Matrix")
+plt.xlabel("Predicted")
+plt.ylabel("Actual")
+plt.show()
+
+
+print("\n✅ CLASSIFICATION REPORT:")
+print(classification_report(y_true, y_pred, target_names=class_names))
+
+
+# ============================================================
+# 8) PER CLASS ACCURACY
+
+
+
+
+print("\n✅ PER-CLASS ACCURACY:")
+class_accuracy = cm.diagonal() / cm.sum(axis=1)
+for i, cls in enumerate(class_names):
+    print(f"{cls}: {class_accuracy[i] * 100:.2f}%")
+
+
+# ============================================================
+# 9) SAMPLE PREDICTION VISUALIZATION
+
+
+
+
+def show_predictions(n=8):
+    test_data.reset()
+    imgs, labels = next(test_data)
+    preds = model.predict(imgs)
+
+
+    plt.figure(figsize=(18,8))
+    for i in range(n):
+        plt.subplot(2, n//2, i+1)
+        plt.imshow(imgs[i])
+        true_label = class_names[np.argmax(labels[i])]
+        pred_label = class_names[np.argmax(preds[i])]
+        color = "green" if true_label == pred_label else "red"
+        plt.title(f"T: {true_label}\nP: {pred_label}", color=color)
+        plt.axis("off")
+    plt.show()
+
+
+show_predictions()
+
+
+# 10) UPLOAD & PREDICT YOUR OWN IMAGE
+
+
+
+
+def predict_image():
+    print("\nUpload an image to classify:")
+    up = files.upload()
+
+
+    for fn in up.keys():
+        img = Image.open(fn).convert("RGB")
+        img_resized = img.resize((IMG_SIZE, IMG_SIZE))
+        arr = np.array(img_resized)/255.0
+        arr = np.expand_dims(arr, axis=0)
+
+
+        pred = model.predict(arr)[0]
+        predicted_class = class_names[np.argmax(pred)]
+
+
+        print(f"\n✅ Prediction: {predicted_class.upper()}")
+        print("Probabilities:", {class_names[i]: float(pred[i]) for i in range(num_classes)})
+
+
+        plt.imshow(img)
+        plt.title("Predicted: " + predicted_class)
+        plt.axis('off')
